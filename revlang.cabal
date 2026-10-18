@@ -1,0 +1,54 @@
+cabal-version:      2.4
+name:               revlang
+version:            0.1.0.0
+synopsis:           Typed, high-level reversible programming languages
+description:
+  RevLang implements typed, high-level reversible programming languages,
+  starting from the Π (Pi) core calculus of reversible combinators
+  (James & Sabry, "Information Effects", POPL 2012; Choudhury, Karwowski
+  & Sabry, "Symmetries in Reversible Programming", POPL 2022).
+  .
+  Languages are grown in stages, mirroring the staged methodology of the
+  author's earlier SystemT implementation:
+  .
+  * L1: the Π core — finite types, values, 1-combinators, a total
+    evaluator, and computable adjoints. Every well-typed term denotes a
+    bijection between finite sets.
+
+author:             Jingren Wang
+maintainer:         wjrforcyber@github
+license:            BSD-3-Clause
+build-type:         Simple
+
+common shared
+  default-language: Haskell2010
+  ghc-options:      -Wall
+  build-depends:    base >=4.14 && <5
+
+library
+  import:           shared
+  hs-source-dirs:   src
+  exposed-modules:
+    RevLang.L1.Type
+    RevLang.L1.Value
+    RevLang.L1.Combinator
+    RevLang.L1.Eval
+    RevLang.L1.Pretty
+    RevLang.L1.Examples
+
+executable revlang-demo
+  import:           shared
+  hs-source-dirs:   app
+  main-is:          Main.hs
+  build-depends:    revlang
+
+test-suite revlang-test
+  import:           shared
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   test
+  main-is:          Main.hs
+  build-depends:
+      revlang
+    , tasty        >=1.4
+    , tasty-quickcheck >=0.10
+    , QuickCheck   >=2.14
