@@ -3,8 +3,8 @@ module Main (main) where
 import RevLang.L1.Combinator (Pi, cost)
 import RevLang.L1.Eval (eval, evalBack)
 import RevLang.L1.Examples
-  ( Bit, Eight, Four, cnot, flattenBitPair, flattenBitTriple
-  , notC, permEight, permFour, toffoli )
+  ( Bit, Eight, Four, c3not, cnot, flattenBitPair, flattenBitTriple
+  , notC, permEight, permFour, toffoli, toffoliMct )
 import RevLang.L1.Pretty (prettyPi, prettyU, prettyVal)
 import RevLang.L1.Type (SU (..), U (..), size)
 import RevLang.L1.Value (enumerate)
@@ -22,6 +22,10 @@ main = do
     sBitPair uBitPair sBitPair uBitPair cnot
   demo "Toffoli : (a, b, c) ↦ (a, b, c ⊕ (a ∧ b))"
     sBitTriple uBitTriple sBitTriple uBitTriple toffoli
+  demo "MCT-Toffoli (control-tree construction; same bijection, cheaper term)"
+    sBitTriple uBitTriple sBitTriple uBitTriple toffoliMct
+  demo "C3NOT (3-control Toffoli) : (a, b, c, d) ↦ (a, b, c, d ⊕ (a ∧ b ∧ c))"
+    sBitQuad uBitQuad sBitQuad uBitQuad c3not
   demo "flatten a bit pair to canonical form"
     sBitPair uBitPair sFour uFour flattenBitPair
   demo "flatten a bit triple to canonical form"
@@ -39,6 +43,9 @@ main = do
 
     sBitTriple = STIMES sBitPair sBit
     uBitTriple = TIMES uBitPair uBit
+
+    sBitQuad = STIMES sBitTriple sBit
+    uBitQuad = TIMES uBitTriple uBit
 
     sFour = SPLUS SONE (SPLUS SONE (SPLUS SONE SONE)) :: SU Four
     uFour = PLUS ONE (PLUS ONE (PLUS ONE ONE)) :: U

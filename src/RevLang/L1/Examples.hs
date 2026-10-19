@@ -1,8 +1,12 @@
 {-# LANGUAGE DataKinds     #-}
 {-# LANGUAGE GADTs         #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TypeOperators #-}
 
 -- | L1, step 6: flagship examples.
+--
+-- The NCT family (NOT, CNOT, Toffoli) and the MCT family
+-- (multiple-controlled Toffoli) of reversible-logic synthesis.
 --
 -- The pattern used throughout is /flatten, permute, unflatten/:
 --
@@ -32,12 +36,19 @@ module RevLang.L1.Examples
     -- * Logic gates as isomorphisms
   , notC
   , cnot
-  , toffoli
-    -- * Their building blocks
+  , toffoli    -- * Their building blocks
   , flattenBitPair
   , permFour
   , flattenBitTriple
   , permEight
+    -- * MCT — the multiple-controlled Toffoli family
+  , Counting (..)
+  , cFour
+  , cEight
+  , mct
+  , mctGate
+  , toffoliMct
+  , c3not
   ) where
 
 import RevLang.L1.Combinator (Pi (..), adjoint)
@@ -118,3 +129,60 @@ permEight = Id :++: (Id :++: (Id :++: (Id :++: (Id :++: (Id :++: SwapP)))))
 -- swaps @110 ↔ 111@ (indices 6 and 7) — exactly 'permEight'.
 toffoli :: Pi ('TIMES ('TIMES Bit Bit) Bit) ('TIMES ('TIMES Bit Bit) Bit)
 toffoli = flattenBitTriple :>>: permEight :>>: adjoint flattenBitTriple
+
+-- | Witness that @s@ is a right-nested sum of unit leaves — the
+-- canonical carrier of flattened control patterns.  Unlike a plain
+-- @SU s@ (which admits products, empty types, non-count sums, …),
+-- @Counting s@ can only be built for the shapes @mct@ means to
+-- consume, so the domain restriction is checked by the compiler.
+data Counting (s :: U) where
+  Two  :: Counting ('PLUS 'ONE 'ONE)          -- ^ 2 leaves — one control bit
+  Plus :: Counting s -> Counting ('PLUS 'ONE s) -- ^ one leaf further up the spine
+
+-- | Canonical counting witnesses for the register sizes used below.
+cFour :: Counting Four
+cFour = Plus (Plus Two)
+
+cEight :: Counting Eight
+cEight = Plus (Plus (Plus (Plus (Plus (Plus Two)))))
+
+-- | MCT — the multiple-controlled Toffoli family, generic in the
+-- number of controls.
+--
+-- @mct c@ acts on a register @s ⊗ Bit@ where @s@ is the flattened
+-- pattern of @k@ control bits, leaf @i@ being the pattern with binary
+-- value @i@.  The gate flips the target exactly on the all-ones
+-- pattern, which is the deepest, rightmost leaf.
+--
+-- The recursion walks the /control tree/:
+--
+--   * 'Two' branches on the single control bit with @dist@: the zero
+--     branch is a dead end (@id@ on the target), the one branch
+--     carries the flip (@swap+@); @factor@ closes the branch;
+--   * @'Plus' c@ branches likewise and recurses only down the one
+--     branch — zero prefixes can never reach the all-ones pattern.
+mct :: Counting s -> Pi ('TIMES s Bit) ('TIMES s Bit)
+mct Two      = Dist :>>: (Id :**: Id) :++: (Id :**: SwapP) :>>: Factor
+mct (Plus c) = Dist :>>: (Id :**: Id) :++: mct c :>>: Factor
+
+-- | Lift 'mct' to a concrete register: @flattenC@ flattens the
+-- control register @c@ (a product of bits) into its canonical sum
+-- @s@.  The 'Counting' witness must agree with @flattenC@'s target
+-- type, otherwise the composition does not typecheck — the mismatch
+-- cannot be written.
+mctGate :: Counting s -> Pi c s -> Pi ('TIMES c Bit) ('TIMES c Bit)
+mctGate c flattenC =
+  (flattenC :**: Id) :>>: mct c :>>: (adjoint flattenC :**: Id)
+
+-- | Toffoli, rebuilt as MCT with two controls.  It denotes the same
+-- bijection as 'toffoli' (checked exhaustively by the test suite)
+-- but is a cheaper term — fewer primitives — a first concrete taste
+-- of why term choice matters, i.e. of exactly what the L2 optimizer
+-- will automate.
+toffoliMct :: Pi ('TIMES ('TIMES Bit Bit) Bit) ('TIMES ('TIMES Bit Bit) Bit)
+toffoliMct = mctGate cFour flattenBitPair
+
+-- | C3NOT — MCT with three controls:
+-- @(a, b, c, d) ↦ (a, b, c, d ⊕ (a ∧ b ∧ c))@.
+c3not :: Pi ('TIMES ('TIMES ('TIMES Bit Bit) Bit) Bit) ('TIMES ('TIMES ('TIMES Bit Bit) Bit) Bit)
+c3not = mctGate cEight flattenBitTriple

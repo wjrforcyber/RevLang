@@ -38,7 +38,7 @@ import Test.Tasty.QuickCheck
 
 import RevLang.L1.Combinator (Pi (..), adjoint, cost)
 import RevLang.L1.Eval (eval, evalBack)
-import RevLang.L1.Examples (Bit, Eight, Four, bit, cnot, flattenBitPair, flattenBitTriple, notC, permEight, permFour, toffoli)
+import RevLang.L1.Examples (Bit, Eight, Four, bit, c3not, cnot, flattenBitPair, flattenBitTriple, notC, permEight, permFour, toffoli, toffoliMct)
 import RevLang.L1.Type (SU (..), U (..), size)
 import RevLang.L1.Value (Val (..), enumerate)
 
@@ -60,6 +60,9 @@ tests = testGroup "RevLang L1"
       [ testProperty "NOT semantics"        notCheck
       , testProperty "CNOT semantics"       cnotCheck
       , testProperty "Toffoli semantics"    toffoliCheck
+      , testProperty "MCT-Toffoli ≡ Toffoli"      mctToffoliCheck
+      , testProperty "C3NOT semantics"            c3notCheck
+      , testProperty "MCT term is cheaper than flatten-permute" costMctCheck
       , testProperty "flatten/unflatten are inverse (pairs)"    flattenPairCheck
       , testProperty "flatten/unflatten are inverse (triples)"  flattenTripleCheck
       , testProperty "permutations round-trip"                  permCheck
@@ -259,6 +262,23 @@ toffoliCheck = property $
               out = VPair (VPair (bit a) (bit b)) (bit (c /= (a && b)))
           in  eval toffoli inp == out)
       [(a, b, c) | a <- bits, b <- bits, c <- bits]
+
+-- | The control-tree MCT construction and the flatten-permute
+-- construction denote the same bijection, on every input.
+mctToffoliCheck :: Property
+mctToffoliCheck = property $
+  all (\v -> eval toffoliMct v == eval toffoli v) (enumerate sBitTriple)
+
+c3notCheck :: Property
+c3notCheck = property $
+  all (\(a, b, c, d) ->
+        let inp = VPair (VPair (VPair (bit a) (bit b)) (bit c)) (bit d)
+            out = VPair (VPair (VPair (bit a) (bit b)) (bit c)) (bit (d /= (a && b && c)))
+        in  eval c3not inp == out)
+      [(a, b, c, d) | a <- bits, b <- bits, c <- bits, d <- bits]
+
+costMctCheck :: Property
+costMctCheck = property (cost toffoliMct < cost toffoli)
 
 -- | flatten and its adjoint are mutual inverses, on every input, both
 -- directions, for pairs and triples.
