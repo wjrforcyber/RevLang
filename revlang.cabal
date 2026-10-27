@@ -35,6 +35,8 @@ library
     RevLang.L1.Eval
     RevLang.L1.Pretty
     RevLang.L1.Examples
+    RevLang.L2.Rule
+    RevLang.L2.Optimize
 
 executable revlang-demo
   import:           shared

@@ -41,6 +41,8 @@ import RevLang.L1.Eval (eval, evalBack)
 import RevLang.L1.Examples (Bit, Eight, Four, bit, c3not, cnot, flattenBitPair, flattenBitTriple, notC, permEight, permFour, toffoli, toffoliMct)
 import RevLang.L1.Type (SU (..), U (..), size)
 import RevLang.L1.Value (Val (..), enumerate)
+import RevLang.L2.Optimize (optimize, rewriteTop)
+import RevLang.L2.Rule (axioms)
 
 main :: IO ()
 main = defaultMain tests
@@ -67,6 +69,19 @@ tests = testGroup "RevLang L1"
       , testProperty "flatten/unflatten are inverse (triples)"  flattenTripleCheck
       , testProperty "permutations round-trip"                  permCheck
       , testProperty "costs are sensible"                       costCheck
+      ]
+  , testGroup "L2 rewriter"
+      [ testProperty "optimizer preserves semantics (random)"  propOptimizerSound
+      , testProperty "optimizer never increases cost (random)" propOptimizerMonotone
+      , testProperty "optimizer is idempotent (random)"        propOptimizerIdempotent
+      , testProperty "cancel rule fires on p ; p†"             cancelRuleCheck
+      , testProperty "interchange-× is semantically sound"     interchangeCheck
+      , gateProp "optimizer preserves NOT"         sBit notC
+      , gateProp "optimizer preserves CNOT"        sBitPair cnot
+      , gateProp "optimizer preserves Toffoli"     sBitTriple toffoli
+      , gateProp "optimizer preserves MCT-Toffoli" sBitTriple toffoliMct
+      , gateProp "optimizer preserves C3NOT"       sBitQuad c3not
+      , testProperty "detoured NOT annihilates to identity"    detourCheck
       ]
   ]
 
@@ -303,6 +318,60 @@ costCheck :: Property
 costCheck = property (cost (Id :: Pi Bit Bit) == 0 && cost cnot > 0 && cost toffoli > 0)
 
 --------------------------------------------------------------------------------
+-- L2 rewriter
+--------------------------------------------------------------------------------
+
+-- | The primary soundness property of L2.0: optimizing a random
+-- isomorphism yields a term computing the same bijection, checked
+-- exhaustively over the finite domain.  If any kernel rule were
+-- unsound, this property would eventually catch it.
+propOptimizerSound :: Property
+propOptimizerSound = forAll (genSomeIso 5) $ \si -> case si of
+  SomeIso sa _ c -> property $
+    all (\v -> eval (optimize axioms c) v == eval c v) (enumerate sa)
+
+propOptimizerMonotone :: Property
+propOptimizerMonotone = forAll (genSomeIso 5) $ \si -> case si of
+  SomeIso _ _ c -> cost (optimize axioms c) <= cost c
+
+propOptimizerIdempotent :: Property
+propOptimizerIdempotent = forAll (genSomeIso 5) $ \si -> case si of
+  SomeIso _ _ c -> optimize axioms (optimize axioms c) == optimize axioms c
+
+-- | The cancellation schema recognizes primitive adjoint pairs.
+cancelRuleCheck :: Property
+cancelRuleCheck = property $
+  rewriteTop axioms (notC :>>: notC) == Just (Id :: Pi Bit Bit)
+
+-- | Interchange on a concrete instance: composing two parallel pairs
+-- equals pairing two sequential compositions, exhaustively over the
+-- 9-element domain.
+interchangeCheck :: Property
+interchangeCheck = property $
+  let lhs = (AssocP :**: AssocT) :>>: (AssocPI :**: AssocTI)
+      rhs = (AssocP :>>: AssocPI) :**: (AssocT :>>: AssocTI)
+      -- source type of lhs: (1⊕(1⊕1)) ⊗ (1⊗(1⊗1))
+      dom = STIMES (SPLUS SONE (SPLUS SONE SONE))
+                   (STIMES SONE (STIMES SONE SONE))
+  in  all (\v -> eval lhs v == eval rhs v) (enumerate dom)
+
+-- | Every gate's optimized form must compute the same bijection.
+gateProp :: String -> SU a -> Pi a b -> TestTree
+gateProp name sa c = testProperty name $ property $
+  let c' = optimize axioms c
+  in  all (\v -> eval c' v == eval c v) (enumerate sa)
+
+-- | A NOT gate with a redundant swap detour optimizes to the identity:
+-- @not ; swap ; swap ; not = id@, cost 4 → 0.  The showcase that the
+-- fixpoint iteration composes several rules (cancel, then unit laws,
+-- then cancel again).
+detourCheck :: Property
+detourCheck = property $
+  let t  = notC :>>: (notC :>>: notC) :>>: notC
+      t' = optimize axioms t
+  in  cost t' == 0 .&&. t' == (Id :: Pi Bit Bit)
+
+--------------------------------------------------------------------------------
 -- Singletons for the example types (kept here, next to their uses)
 --------------------------------------------------------------------------------
 
@@ -320,3 +389,6 @@ sBitPair = STIMES sBit sBit
 
 sBitTriple :: SU ('TIMES ('TIMES Bit Bit) Bit)
 sBitTriple = STIMES sBitPair sBit
+
+sBitQuad :: SU ('TIMES ('TIMES ('TIMES Bit Bit) Bit) Bit)
+sBitQuad = STIMES sBitTriple sBit

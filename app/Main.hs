@@ -1,6 +1,8 @@
 module Main (main) where
 
-import RevLang.L1.Combinator (Pi, cost)
+import Control.Monad (when)
+
+import RevLang.L1.Combinator (Pi (..), cost)
 import RevLang.L1.Eval (eval, evalBack)
 import RevLang.L1.Examples
   ( Bit, Eight, Four, c3not, cnot, flattenBitPair, flattenBitTriple
@@ -8,6 +10,8 @@ import RevLang.L1.Examples
 import RevLang.L1.Pretty (prettyPi, prettyU, prettyVal)
 import RevLang.L1.Type (SU (..), U (..), size)
 import RevLang.L1.Value (enumerate)
+import RevLang.L2.Optimize (optimize)
+import RevLang.L2.Rule (axioms)
 
 -- | Print each L1 example: its term, cost, and full truth table with
 -- the backward run, plus an exhaustive round-trip check.
@@ -34,6 +38,15 @@ main = do
     sFour uFour sFour uFour permFour
   demo "permute the canonical form (swap flat indices 6, 7)"
     sEight uEight sEight uEight permEight
+
+  putStrLn "L2 optimizer (local rewriting; every output re-validated by eval)"
+  putStrLn ""
+  demoL2 "CNOT" sBitPair cnot
+  demoL2 "Toffoli" sBitTriple toffoli
+  demoL2 "MCT-Toffoli" sBitTriple toffoliMct
+  demoL2 "C3NOT" sBitQuad c3not
+  demoL2 "NOT with a redundant swap detour"
+    sBit (notC :>>: (notC :>>: notC) :>>: notC)
   where
     sBit = SPLUS SONE SONE :: SU Bit
     uBit = PLUS ONE ONE :: U
@@ -70,3 +83,17 @@ demo name sa ua _sb ub c = do
                       ++ prettyVal (evalBack c (eval c v)))
 
     pad n s = s ++ replicate (n - length s) ' '
+
+-- | L2 section: report the optimizer's effect on one gate — cost
+-- before → after, the optimized term when it changed, and an
+-- exhaustive semantic re-validation against the original.
+demoL2 :: String -> SU a -> Pi a b -> IO ()
+demoL2 name sa c = do
+  let c' = optimize axioms c
+  putStrLn ("== " ++ name)
+  putStrLn ("   cost : " ++ show (cost c) ++ " → " ++ show (cost c') ++ " primitives")
+  when (c' /= c) $
+    putStrLn ("   optimized : " ++ prettyPi c')
+  let ok = all (\v -> eval c' v == eval c v) (enumerate sa)
+  putStrLn ("   semantics preserved: " ++ (if ok then "OK" else "FAIL"))
+  putStrLn ""
