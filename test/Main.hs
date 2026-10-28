@@ -36,11 +36,14 @@ import Test.QuickCheck (Gen, Property, (.&&.), (===), forAll, frequency, oneof, 
 import Test.Tasty
 import Test.Tasty.QuickCheck
 
+import Data.List (findIndex)
+
 import RevLang.L1.Combinator (Pi (..), adjoint, cost)
 import RevLang.L1.Eval (eval, evalBack)
-import RevLang.L1.Examples (Bit, Eight, Four, bit, c3not, cnot, flattenBitPair, flattenBitTriple, notC, permEight, permFour, toffoli, toffoliMct)
+import RevLang.L1.Examples (Bit, Eight, Four, bit, c3not, cnot, flattenBitPair, flattenBitTriple, notC, permEight, permFour, toffoli, toffoliMct, unbit)
 import RevLang.L1.Type (SU (..), U (..), size)
 import RevLang.L1.Value (Val (..), enumerate)
+import RevLang.L2.Canon (Reg, SomeFlatten (..), flatten, regBits, splitLeaves, reg2, reg3, reg4)
 import RevLang.L2.Optimize (optimize, rewriteTop)
 import RevLang.L2.Rule (axioms)
 
@@ -82,6 +85,16 @@ tests = testGroup "RevLang L1"
       , gateProp "optimizer preserves MCT-Toffoli" sBitTriple toffoliMct
       , gateProp "optimizer preserves C3NOT"       sBitQuad c3not
       , testProperty "detoured NOT annihilates to identity"    detourCheck
+      ]
+  , testGroup "L2.1a canonical flattening"
+      [ flattenProp "generic flatten round-trips (2-bit)"  reg2 sBitPair
+      , flattenProp "generic flatten round-trips (3-bit)"  reg3 sBitTriple
+      , flattenProp "generic flatten round-trips (4-bit)"  reg4 sBitQuad
+      , testProperty "canonical size = 2 ^ bits"                canonicalSizeCheck
+      , testProperty "split leaves agree with cardinality"      splitLeavesCheck
+      , testProperty "generic flatten aligns with flattenBitPair (by index)"   alignPairCheck
+      , testProperty "generic flatten aligns with flattenBitTriple (by index)" alignTripleCheck
+      , testProperty "4-bit flatten index = 8a+4b+2c+d"         alignQuadCheck
       ]
   ]
 
@@ -370,6 +383,80 @@ detourCheck = property $
   let t  = notC :>>: (notC :>>: notC) :>>: notC
       t' = optimize axioms t
   in  cost t' == 0 .&&. t' == (Id :: Pi Bit Bit)
+
+--------------------------------------------------------------------------------
+-- L2.1a canonical flattening
+--------------------------------------------------------------------------------
+
+-- | The position of a value in the canonical enumeration.  Total by
+-- construction: an absent value would return the list length (an
+-- out-of-range signal), never an error.
+valIndex :: SU s -> Val s -> Int
+valIndex sa v = length (takeWhile (\w -> show w /= show v) (enumerate sa))
+
+-- | Round-trip both directions, exhaustively, for one register.
+flattenProp :: String -> Reg s -> SU s -> TestTree
+flattenProp name reg sa = testProperty name $ case flatten reg of
+  SomeFlatten st _ f -> property $
+    all (\v -> evalBack f (eval f v) == v) (enumerate sa)
+    .&&. all (\w -> eval f (evalBack f w) == w) (enumerate st)
+
+-- | The canonical form of a @k@-bit register has exactly 2^k values.
+-- Each case keeps its existential target type scoped.
+canonicalSizeCheck :: Property
+canonicalSizeCheck = property $
+  (case flatten reg2 of SomeFlatten st _ _ -> property (size st == 4))
+  .&&. (case flatten reg3 of SomeFlatten st _ _ -> property (size st == 8))
+  .&&. (case flatten reg4 of SomeFlatten st _ _ -> property (size st == 16))
+
+splitLeavesCheck :: Property
+splitLeavesCheck = property $ conjoin
+  [ check reg2, check reg3, check reg4 ]
+  where
+    check reg = case flatten reg of
+      SomeFlatten st w _ ->
+        splitLeaves w == 2 ^ regBits reg .&&. splitLeaves w == size st
+
+-- | Index alignment with the hand-written flattening: same value goes
+-- to the same canonical position (the target types differ in
+-- bracketing, so comparison must happen at the index level — which is
+-- exactly the invariant canonicality is defined by).
+alignPairCheck :: Property
+alignPairCheck = property $
+  case flatten reg2 of
+    SomeFlatten st _ f ->
+      all (\v -> valIndex st (eval f v)
+              == valIndex sFour (eval flattenBitPair v))
+          (enumerate sBitPair)
+
+alignTripleCheck :: Property
+alignTripleCheck = property $
+  case flatten reg3 of
+    SomeFlatten st _ f ->
+      all (\v -> valIndex st (eval f v)
+              == valIndex sEight (eval flattenBitTriple v))
+          (enumerate sBitTriple)
+
+-- | Direct binary alignment for the brand-new 4-bit flattening: the
+-- canonical index of a register value is the number read off its
+-- bits, 8a+4b+2c+d, exhaustively over all 16 inputs.
+alignQuadCheck :: Property
+alignQuadCheck = property $
+  case flatten reg4 of
+    SomeFlatten st _ f ->
+      all (\v ->
+            let (a, b, c, d) = bits4 v
+            in  valIndex st (eval f v) == 8 * bi a + 4 * bi b + 2 * bi c + bi d)
+          (enumerate sBitQuad)
+  where
+    bi False = (0 :: Int)
+    bi True  = 1
+
+-- | Navigate a 4-bit register value ((a, b), c) ⊗ d back to its bits.
+bits4 :: Val ('TIMES ('TIMES ('TIMES Bit Bit) Bit) Bit)
+       -> (Bool, Bool, Bool, Bool)
+bits4 (VPair (VPair (VPair a b) c) d) =
+  (unbit a, unbit b, unbit c, unbit d)
 
 --------------------------------------------------------------------------------
 -- Singletons for the example types (kept here, next to their uses)

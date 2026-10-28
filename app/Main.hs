@@ -10,6 +10,7 @@ import RevLang.L1.Examples
 import RevLang.L1.Pretty (prettyPi, prettyU, prettyVal)
 import RevLang.L1.Type (SU (..), U (..), size)
 import RevLang.L1.Value (enumerate)
+import RevLang.L2.Canon (Reg, SomeFlatten (..), flatten, reg2, reg4, regBits)
 import RevLang.L2.Optimize (optimize)
 import RevLang.L2.Rule (axioms)
 
@@ -47,6 +48,11 @@ main = do
   demoL2 "C3NOT" sBitQuad c3not
   demoL2 "NOT with a redundant swap detour"
     sBit (notC :>>: (notC :>>: notC) :>>: notC)
+
+  putStrLn "L2.1a canonical flattening (generic)"
+  putStrLn ""
+  demoFlatten "generic flatten, 2-bit register (compare: hand-written, cost 4)" reg2 sBitPair
+  demoFlatten "generic flatten, 4-bit register (no hand-written version exists)" reg4 sBitQuad
   where
     sBit = SPLUS SONE SONE :: SU Bit
     uBit = PLUS ONE ONE :: U
@@ -97,3 +103,18 @@ demoL2 name sa c = do
   let ok = all (\v -> eval c' v == eval c v) (enumerate sa)
   putStrLn ("   semantics preserved: " ++ (if ok then "OK" else "FAIL"))
   putStrLn ""
+
+-- | L2.1a section: report one generic flattening — target size, term
+-- cost, and an exhaustive round-trip check.
+demoFlatten :: String -> Reg s -> SU s -> IO ()
+demoFlatten name reg sa = case flatten reg of
+  SomeFlatten st _ f -> do
+    putStrLn ("== " ++ name)
+    putStrLn ("   target size : " ++ show (size st)
+              ++ "  (expected 2^" ++ show (regBits reg) ++ ")")
+    putStrLn ("   term cost   : " ++ show (cost f) ++ " primitives")
+    putStrLn ("   term        : " ++ prettyPi f)
+    let ok = all (\v -> evalBack f (eval f v) == v) (enumerate sa)
+    putStrLn ("   round-trip on all " ++ show (size sa) ++ " inputs: "
+              ++ (if ok then "OK" else "FAIL"))
+    putStrLn ""

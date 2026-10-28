@@ -37,6 +37,7 @@ library
     RevLang.L1.Examples
     RevLang.L2.Rule
     RevLang.L2.Optimize
+    RevLang.L2.Canon
 
 executable revlang-demo
   import:           shared
